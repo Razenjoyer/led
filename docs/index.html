@@ -115,7 +115,8 @@
 <script>
 "use strict";
 // ---------- Протокол ленты ELK-BLEDOM / ELK-BLEDDM ----------
-const SERVICE = 0xfff0, CHAR = 0xfff3;
+// полные UUID: браузеры на iPhone (Bluefy) с короткой записью 0xfff0 иногда не справляются
+const SERVICE = "0000fff0-0000-1000-8000-00805f9b34fb", CHAR = "0000fff3-0000-1000-8000-00805f9b34fb";
 const POWER_ON = [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef];
 const POWER_OFF = [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef];
 // order — порядок каналов в ленте: переставляем байты, чтобы загорелся нужный цвет
@@ -182,20 +183,46 @@ async function connect() {
   try {
     setStatus("Выберите ленту ELK в списке…");
     device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: "ELK" }, { namePrefix: "ELK-BLE" }, { services: [SERVICE] }],
+      filters: [{ namePrefix: "ELK" }],
       optionalServices: [SERVICE],
     });
-    device.addEventListener("gattserverdisconnected", onDisconnect);
-    await openGatt();
   } catch (e) {
-    setStatus(e.name === "NotFoundError" ? "Лента не выбрана" : "Ошибка: " + e.message, "warn");
+    const text = errorText(e);
+    setStatus(/NotFound|cancel/i.test(text) ? "Лента не выбрана" : "Ошибка выбора ленты: " + text, "warn");
+    return;
   }
+  device.addEventListener("gattserverdisconnected", onDisconnect);
+  // на iPhone первое подключение часто срывается — пробуем до 3 раз
+  let lastError = null;
+  connecting = true;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try { await openGatt(attempt); connecting = false; return; } catch (e) {
+      lastError = e;
+      try { device.gatt.disconnect(); } catch (_) {}
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  connecting = false;
+  characteristic = null;
+  setStatus(`Не удалось подключиться (${lastStep}): ${errorText(lastError)}. ` +
+    "Закройте программу на компьютере и приложение ленты на телефоне, затем попробуйте снова.", "warn");
 }
 
-async function openGatt() {
-  setStatus(`Подключаюсь к ${device.name || "ленте"}…`);
+// Bluefy иногда возвращает ошибку без текста — собираем всё, что есть
+function errorText(e) {
+  if (e === undefined || e === null) return "без описания";
+  if (typeof e === "string") return e;
+  return [e.name, e.message].filter(x => x && x !== "undefined").join(": ") || String(e);
+}
+
+let lastStep = "", connecting = false;
+async function openGatt(attempt = 1) {
+  lastStep = "подключение";
+  setStatus(`Подключаюсь к ${device.name || "ленте"}… ${attempt > 1 ? `(попытка ${attempt})` : ""}`);
   const server = await device.gatt.connect();
+  lastStep = "поиск сервиса FFF0";
   const service = await server.getPrimaryService(SERVICE);
+  lastStep = "поиск канала FFF3";
   characteristic = await service.getCharacteristic(CHAR);
   lastSent = ""; lastPower = null;
   setStatus(`Подключено: ${device.name || "лента"}`, "ok");
@@ -204,6 +231,7 @@ async function openGatt() {
 }
 
 async function onDisconnect() {
+  if (connecting) return; // обрыв во время попыток подключения — ими занимается connect()
   characteristic = null;
   $("power").disabled = true;
   if (!device || device._manual) { $("connect").textContent = "Подключить ленту"; setStatus("Лента отключена"); return; }
