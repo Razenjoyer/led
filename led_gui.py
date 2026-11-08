@@ -14,7 +14,7 @@ from tkinter import colorchooser, ttk
 import autostart
 import engine
 import palettes
-from effects import MODE_LABELS, MODES, MUSIC_MODES
+from effects import MODE_INFO, MODE_LABELS, MODES, MUSIC_MODES, OTHER_MODES, PALETTE_MODES
 from hotkeys import start_hotkeys
 from protocol import ORDERS
 
@@ -52,6 +52,7 @@ class App:
         tabs = ttk.Notebook(root)
         tabs.pack(fill="both", expand=True, pady=(10, 0))
         self.build_light_tab(tabs)
+        self.build_music_tab(tabs)
         self.build_time_tab(tabs)
         self.build_settings_tab(tabs)
 
@@ -134,12 +135,17 @@ class App:
 
         self.heading(t, "Режим")
         self.mode = tk.StringVar(value=self.state.mode)
-        for m in MODES:
-            ttk.Radiobutton(t, text=MODE_LABELS[m], value=m, variable=self.mode,
-                            command=lambda: self.set_mode(self.mode.get())).pack(anchor="w")
-        self.strobe = tk.BooleanVar(value=self.state.strobe)
-        ttk.Checkbutton(t, text="Стробоскоп на дропах (быстрые вспышки, осторожно, если вспышки вам неприятны)",
-                        variable=self.strobe, command=self.set_strobe).pack(anchor="w", pady=(6, 0))
+        cols = tk.Frame(t, bg=BG)
+        cols.pack(anchor="w", fill="x")
+        for c, (title, modes) in enumerate((("Под музыку", MUSIC_MODES), ("Свет и эффекты", OTHER_MODES))):
+            col = tk.Frame(cols, bg=BG)
+            col.grid(row=0, column=c, sticky="nw", padx=(0, 40))
+            ttk.Label(col, text=title, style="Muted.TLabel").pack(anchor="w")
+            for m in modes:
+                ttk.Radiobutton(col, text=MODE_INFO[m][0], value=m, variable=self.mode,
+                                command=lambda: self.set_mode(self.mode.get())).pack(anchor="w")
+        self.mode_hint = ttk.Label(t, text="", style="Muted.TLabel")
+        self.mode_hint.pack(anchor="w", pady=(4, 0))
 
         self.heading(t, "Палитра (басы → верха)")
         self.palette = tk.StringVar(value=self.state.palette)
@@ -156,6 +162,55 @@ class App:
             canvas.bind("<Button-1>", lambda e, n=name: self.set_palette(n))
             self.previews[name] = canvas
             self.draw_preview(name)
+
+    def build_music_tab(self, tabs):
+        t = self.tab(tabs, "Музыка")
+        self.music_info = ttk.Label(t, text="Темп: —", style="Head.TLabel")
+        self.music_info.pack(anchor="w")
+
+        self.heading(t, "Припев")
+        self.chorus_on = tk.BooleanVar(value=self.state.chorus_switch)
+        ttk.Checkbutton(t, text="Менять палитру на припеве (когда песня становится громче и плотнее)",
+                        variable=self.chorus_on,
+                        command=lambda: setattr(self.state, "chorus_switch", self.chorus_on.get())).pack(anchor="w")
+        row = tk.Frame(t, bg=BG)
+        row.pack(anchor="w", pady=(4, 0))
+        ttk.Label(row, text="Палитра припева:").pack(side="left")
+        auto = "Авто — та же, наоборот"
+        names = [auto] + list(palettes.PALETTES)
+        self.chorus_pal = ttk.Combobox(row, values=names, width=22, state="readonly")
+        self.chorus_pal.set(auto if self.state.chorus_palette == "auto" else self.state.chorus_palette)
+        self.chorus_pal.bind("<<ComboboxSelected>>", lambda e: setattr(
+            self.state, "chorus_palette", "auto" if self.chorus_pal.get() == auto else self.chorus_pal.get()))
+        self.chorus_pal.pack(side="left", padx=6)
+
+        self.heading(t, "Реакция на удары")
+        self.strobe = tk.BooleanVar(value=self.state.strobe)
+        ttk.Checkbutton(t, text="Стробоскоп на дропах (быстрые вспышки — осторожно, если они вам неприятны)",
+                        variable=self.strobe, command=self.set_strobe).pack(anchor="w")
+        ttk.Label(t, text="Чувствительность к биту (1 — только сильные удары, 10 — даже слабые)",
+                  style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
+        self.sens = tk.Scale(t, from_=1, to=10, orient="horizontal", length=380, command=self.set_sens,
+                             bg=BG, fg=FG, troughcolor=CARD, highlightthickness=0)
+        self.sens.set(round((2.0 - self.state.sens) / 0.1) + 1)
+        self.sens.pack(anchor="w")
+
+        self.heading(t, "Режим «Свой»")
+        self.custom_vars = {}
+        for key, label in (("speed", "Скорость реакции цвета"), ("flash", "Сила вспышек на бочке"),
+                           ("base", "Яркость между ударами")):
+            ttk.Label(t, text=label, style="Muted.TLabel").pack(anchor="w")
+            sc = tk.Scale(t, from_=0, to=100, orient="horizontal", length=380, bg=BG, fg=FG, troughcolor=CARD,
+                          highlightthickness=0, command=lambda v, k=key: self.set_custom(k, int(v)))
+            sc.set(self.state.custom.get(key, 50))
+            sc.pack(anchor="w")
+        self.custom_sparkle = tk.BooleanVar(value=self.state.custom.get("sparkle", True))
+        ttk.Checkbutton(t, text="Искры на хай-хэтах и тарелках", variable=self.custom_sparkle,
+                        command=lambda: self.set_custom("sparkle", self.custom_sparkle.get())).pack(anchor="w")
+        make_button(t, "Включить режим «Свой»", lambda: self.set_mode("custom")).pack(anchor="w", pady=(6, 0))
+
+    def set_custom(self, key, value):
+        self.state.custom = {**self.state.custom, key: value}
 
     def build_time_tab(self, tabs):
         t = self.tab(tabs, "Время")
@@ -209,12 +264,6 @@ class App:
         box.bind("<<ComboboxSelected>>", lambda e: setattr(self.state, "order", self.order.get()))
         ttk.Label(t, text="Если красный горит зелёным, попробуйте другой порядок.", style="Muted.TLabel").pack(anchor="w")
 
-        self.heading(t, "Чувствительность к биту")
-        self.sens = tk.Scale(t, from_=1, to=10, orient="horizontal", length=380, command=self.set_sens,
-                             bg=BG, fg=FG, troughcolor=CARD, highlightthickness=0)
-        self.sens.set(round((2.0 - self.state.sens) / 0.1) + 1)
-        self.sens.pack(anchor="w")
-
         self.heading(t, "Запуск")
         self.autostart = tk.BooleanVar(value=autostart.is_enabled())
         ttk.Checkbutton(t, text="Запускать вместе с Windows (сразу в трей)", variable=self.autostart,
@@ -262,7 +311,7 @@ class App:
         self.state.touch()
         self.state.palette = name
         self.palette.set(name)
-        if self.state.mode not in MUSIC_MODES or self.state.mode == "spectrum":
+        if self.state.mode not in PALETTE_MODES:
             self.set_mode("freq")  # палитра работает в музыкальных режимах
 
     def cycle_palette(self, step):
@@ -366,6 +415,9 @@ class App:
         self.power_btn.configure(text="Выключить" if s.power else "Включить")
         if self.mode.get() != s.mode:
             self.mode.set(s.mode)
+        self.mode_hint.configure(text=MODE_LABELS[s.mode])
+        bpm = f"{s.bpm:.0f} BPM" if s.bpm >= 60 else "— (включите музыку)"
+        self.music_info.configure(text=f"Темп: {bpm}" + ("   •   сейчас припев" if s.chorus_now else ""))
         if s.mode == "manual":
             self.swatch.configure(bg=rgb_to_hex(s.color))
         if s.cover_version != self.cover_seen:

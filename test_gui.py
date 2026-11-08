@@ -23,9 +23,14 @@ log = []
 
 
 def snap(name):
+    root.attributes("-topmost", True)  # окно поверх других, чтобы на снимок не попало чужое
+    root.lift()
+    root.update()
+    root.after(150)
     root.update()
     x, y = root.winfo_rootx(), root.winfo_rooty()
     ImageGrab.grab((x, y, x + root.winfo_width(), y + root.winfo_height())).save(shots / f"gui_{name}.png")
+    root.attributes("-topmost", False)
 
 
 def check(label, cond):
@@ -35,8 +40,12 @@ def check(label, cond):
 steps = [
     (5000, lambda: log.append("статус: " + app.state.status)),
     (5200, lambda: snap("1_light")),
-    (5400, lambda: (tabs.select(1), snap("2_time"))),
-    (5600, lambda: (tabs.select(2), snap("3_settings"), tabs.select(0))),
+    (5300, lambda: tabs.select(1)),
+    (5500, lambda: snap("2_music")),
+    (5600, lambda: tabs.select(2)),
+    (5800, lambda: snap("3_time")),
+    (5850, lambda: tabs.select(3)),
+    (5950, lambda: (snap("4_settings"), tabs.select(0))),
     (6000, lambda: app.set_color("#ff0000")),
     (6800, lambda: app.set_color("#00ff00")),
     (7600, lambda: app.set_color("#0000ff")),
@@ -45,7 +54,11 @@ steps = [
     (8500, lambda: check("палитра «Огонь» включает режим «Частоты»", app.state.mode == "freq")),
     (9000, lambda: app.set_mode("calm")),
     (9500, lambda: app.cycle_mode(1)),
-    (9600, lambda: check("следующий режим после «Плавного» — «Спектр»", app.state.mode == "spectrum")),
+    (9600, lambda: check("следующий режим после «Плавного» — «Свой»", app.state.mode == "custom")),
+    (9650, lambda: app.set_custom("flash", 10)),
+    (9700, lambda: check("ползунок «Своего» сохраняется", app.state.custom["flash"] == 10)),
+    (9750, lambda: (app.set_mode("candle"), check("эффект «Свеча»", app.state.mode == "candle"))),
+    (9760, lambda: app.set_mode("tempo")),
     (9800, lambda: app.cycle_palette(1)),
     (9900, lambda: check("следующая палитра после «Огня» — «Океан»", app.state.palette == "Океан")),
     (10000, lambda: app.change_brightness(-30)),

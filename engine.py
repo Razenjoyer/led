@@ -8,14 +8,15 @@ from pathlib import Path
 from bleak import BleakClient
 
 from audio import start_audio_in_thread
-from effects import Effects
+from effects import DEFAULT_CUSTOM, MODES, Effects
 from palettes import DEFAULT_PALETTE
 from protocol import DEFAULT_ADDRESS, DEFAULT_ORDER, POWER_OFF, POWER_ON, WRITE_CHAR, color_cmd
 from sources import start_screen_sampler, watch_cover
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
 SAVED_KEYS = ["mode", "color", "brightness", "sens", "palette", "order", "strobe",
-              "alarm_enabled", "alarm_time", "alarm_minutes", "close_to_tray"]
+              "alarm_enabled", "alarm_time", "alarm_minutes", "close_to_tray",
+              "chorus_switch", "chorus_palette", "custom"]
 ALARM_HOLD_MINUTES = 30  # сколько держать тёплый свет после времени будильника
 PREVIEW_SECONDS = 20
 
@@ -32,6 +33,11 @@ class State:
         self.order = DEFAULT_ORDER  # порядок каналов в ленте
         self.strobe = False  # стробоскоп на дропах
         self.close_to_tray = True  # крестик окна прячет программу в трей
+        self.chorus_switch = True  # на припеве переключаться на другую палитру
+        self.chorus_palette = "auto"  # «auto» — следующая по списку
+        self.custom = dict(DEFAULT_CUSTOM)  # ползунки режима «Свой»
+        self.bpm = 0.0  # темп текущей песни (для окна)
+        self.chorus_now = False
         self.power = True
         # будильник-рассвет
         self.alarm_enabled = False
@@ -70,7 +76,8 @@ class State:
 
     # --- сохранение настроек между запусками ---
     def to_dict(self):
-        return {k: getattr(self, k) for k in SAVED_KEYS}
+        # копии словарей, чтобы окно замечало изменения ползунков «Своего» режима
+        return {k: dict(v) if isinstance(v, dict) else v for k in SAVED_KEYS for v in [getattr(self, k)]}
 
     def load(self, path=SETTINGS_FILE):
         try:
@@ -80,6 +87,9 @@ class State:
         for k in SAVED_KEYS:
             if k in data:
                 setattr(self, k, tuple(data[k]) if k == "color" else data[k])
+        self.custom = {**DEFAULT_CUSTOM, **(self.custom if isinstance(self.custom, dict) else {})}
+        if self.mode not in MODES:
+            self.mode = "manual"
 
     def save(self, path=SETTINGS_FILE):
         try:
@@ -151,6 +161,8 @@ def compute_output(state, effects, snapshot, dt_s, now=None):
     phase = alarm_phase(state, now or dt.datetime.now())
     if phase is not None:
         return True, sunrise_color(phase)
+    level = snapshot[0]
+    state.bpm, state.chorus_now = level.get("bpm", 0.0), bool(level.get("chorus"))
     if not state.power:
         return False, (0, 0, 0)
     r, g, b = effects.frame(*snapshot, dt_s)
@@ -167,6 +179,14 @@ async def run(state, address=DEFAULT_ADDRESS, fps=25):
     effects = Effects(state)
     start_screen_sampler(state)
     cover_task = asyncio.create_task(watch_cover(state))
+
+    async def show_music_info():  # темп и припев в окне — даже пока лента не подключена
+        while not state.stop:
+            level = analyzer.snapshot()[0]
+            state.bpm, state.chorus_now = level.get("bpm", 0.0), bool(level.get("chorus"))
+            await asyncio.sleep(0.5)
+
+    info_task = asyncio.create_task(show_music_info())
     period = 1 / fps
     try:
         while not state.stop:
@@ -192,6 +212,7 @@ async def run(state, address=DEFAULT_ADDRESS, fps=25):
                 await asyncio.sleep(3)
     finally:
         cover_task.cancel()
+        info_task.cancel()
         stream.stop_stream()
         stream.close()
         p.terminate()

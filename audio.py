@@ -6,6 +6,8 @@ from collections import deque
 import numpy as np
 import pyaudiowpatch as pyaudio
 
+from rhythm import ChorusDetector, TempoTracker
+
 BLOCK = 1024
 
 
@@ -38,6 +40,8 @@ class Analyzer:
         self.beats = 0  # счётчики событий: растут на каждый удар
         self.hats = 0
         self.drops = 0
+        self.tempo = TempoTracker(per_sec)
+        self.chorus = ChorusDetector(per_sec)
         self.lock = threading.Lock()
 
     def feed(self, mono):
@@ -81,11 +85,15 @@ class Analyzer:
             if mag.sum() > 1e-9:
                 self.centroid = float(np.sum(mag * self.cent_logf) / np.sum(mag))
 
+            self.tempo.add(energy["bass"], energy["mid"])
+            self.chorus.add(self.loudness)
+
     def snapshot(self):
         with self.lock:
             # когда ничего не играет, Windows перестаёт присылать звук — считаем это тишиной
             loud = self.loudness if time.monotonic() - self.last_feed < 0.5 else 0.0
-            level = {**self.level, "centroid": self.centroid}
+            level = {**self.level, "centroid": self.centroid, "bpm": self.tempo.bpm,
+                     "chorus": self.chorus.active and loud > 0}
             return level, loud, {"beats": self.beats, "hats": self.hats, "drops": self.drops}
 
 
