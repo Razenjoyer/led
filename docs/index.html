@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#16161c">
+<title>LED Music</title>
+<style>
+  :root {
+    --bg: #16161c; --card: #22222b; --card2: #2c2c37; --fg: #f2f2f7; --muted: #9a9aab;
+    --accent: #ff2d8a; --ok: #34c759; --warn: #ff9f0a; --radius: 16px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { padding: calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 24px); }
+  main { max-width: 480px; margin: 0 auto; display: grid; gap: 14px; }
+  h1 { font-size: 22px; margin: 4px 0 0; display: flex; align-items: center; gap: 10px; }
+  #glow { width: 22px; height: 22px; border-radius: 50%; background: #333; box-shadow: 0 0 18px #0000;
+    transition: background .08s, box-shadow .08s; flex: none; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 14px; display: grid; gap: 12px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  button { font: inherit; color: var(--fg); background: var(--card2); border: 0; border-radius: 12px;
+    padding: 12px 14px; min-height: 46px; cursor: pointer; }
+  button:active { transform: scale(.97); }
+  button.primary { background: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; }
+  #status { color: var(--muted); font-size: 14px; }
+  #status.ok { color: var(--ok); } #status.warn { color: var(--warn); }
+  .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .swatch { aspect-ratio: 1; border-radius: 12px; min-height: 0; padding: 0; outline: 2px solid transparent; outline-offset: 2px; }
+  .swatch.sel { outline-color: var(--fg); }
+  .picker { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); font-size: 22px; }
+  .picker input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+  label.slider { display: grid; gap: 6px; font-size: 14px; color: var(--muted); }
+  label.slider span b { color: var(--fg); font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--accent); height: 30px; }
+  label.check { display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 36px; }
+  label.check input { width: 22px; height: 22px; accent-color: var(--accent); }
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .modes button { text-align: left; line-height: 1.2; }
+  .modes button small { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .modes button.sel, .pal.sel { background: var(--card2); box-shadow: inset 0 0 0 2px var(--accent); }
+  .palettes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pal { display: grid; gap: 6px; text-align: left; padding: 10px 12px; }
+  .pal i { display: block; height: 10px; border-radius: 5px; }
+  .orders { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .orders button { padding: 10px 0; font-size: 14px; font-weight: 600; }
+  .orders button.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+  .meters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 12px; color: var(--muted); }
+  .meter { height: 6px; background: var(--card2); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  .meter div { height: 100%; width: 0; background: var(--accent); transition: width .05s; }
+  .note { font-size: 13px; color: var(--muted); }
+  .note b { color: var(--fg); }
+  #unsupported { display: none; background: #3a2410; color: #ffd9a8; }
+  #unsupported a { color: #ffb35c; }
+</style>
+</head>
+<body>
+<main>
+  <h1><span id="glow"></span>LED Music</h1>
+
+  <section class="card" id="unsupported">
+    <div>Этот браузер не умеет работать с Bluetooth. На iPhone откройте эту страницу в бесплатном браузере
+      <b>Bluefy</b> из App Store (Safari и Chrome на iPhone Bluetooth не поддерживают).</div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <button class="primary" id="connect" style="flex:1">Подключить ленту</button>
+      <button id="power" disabled>Выкл</button>
+    </div>
+    <div id="status">Лента не подключена</div>
+  </section>
+
+  <section class="card">
+    <h2>Цвет</h2>
+    <div class="swatches" id="swatches"></div>
+    <label class="slider"><span>Яркость: <b id="brightVal">100%</b></span>
+      <input type="range" id="bright" min="0" max="100" value="100"></label>
+  </section>
+
+  <section class="card">
+    <h2>Режим</h2>
+    <div class="modes" id="modes"></div>
+    <div class="meters" id="meters" hidden>
+      <div>Басы<div class="meter"><div id="mBass"></div></div></div>
+      <div>Середина<div class="meter"><div id="mMid"></div></div></div>
+      <div>Верха<div class="meter"><div id="mHigh"></div></div></div>
+    </div>
+    <label class="check"><input type="checkbox" id="strobe"> Стробоскоп на дропах (быстрые вспышки)</label>
+    <label class="slider"><span>Чувствительность к биту: <b id="sensVal">7</b></span>
+      <input type="range" id="sens" min="1" max="10" value="7"></label>
+    <div class="note">Светомузыка слушает <b>микрофон</b>: поставьте телефон рядом с колонкой.
+      Если музыка играет на этом же iPhone, включите её через динамик и держите Bluefy открытым на экране.</div>
+  </section>
+
+  <section class="card">
+    <h2>Палитра (басы → верха)</h2>
+    <div class="palettes" id="palettes"></div>
+  </section>
+
+  <section class="card">
+    <h2>Порядок цветов ленты</h2>
+    <div class="orders" id="orders"></div>
+    <div class="note">Если красный горит зелёным или синим, выберите другой порядок. У ELK-BLEDDM C1 — GRB.</div>
+  </section>
+</main>
+
+<script>
+"use strict";
+// ---------- Протокол ленты ELK-BLEDOM / ELK-BLEDDM ----------
+const SERVICE = 0xfff0, CHAR = 0xfff3;
+const POWER_ON = [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef];
+const POWER_OFF = [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef];
+// order — порядок каналов в ленте: переставляем байты, чтобы загорелся нужный цвет
+const ORDERS = ["RGB", "GRB", "BRG", "RBG", "GBR", "BGR"];
+const colorCmd = (r, g, b, order = "RGB") => {
+  const c = { R: r, G: g, B: b };
+  return [0x7e, 0x00, 0x05, 0x03, c[order[0]], c[order[1]], c[order[2]], 0x00, 0xef];
+};
+
+// ---------- Палитры (как в программе для компьютера) ----------
+const PALETTES = {
+  "Тепло и холод": [[1,0,0],[1,0,.5],[.6,0,1],[0,.25,1],[0,.9,1]],
+  "Огонь": [[.8,0,0],[1,.1,0],[1,.35,0],[1,.6,0],[1,.85,0]],
+  "Океан": [[0,0,.9],[0,.3,1],[0,.75,1],[0,1,.6],[.45,1,.85]],
+  "Закат": [[.45,0,.9],[.9,0,.7],[1,0,.25],[1,.35,0],[1,.75,0]],
+  "Неон": [[1,0,.6],[.7,0,1],[0,.4,1],[0,1,1],[.4,1,0]],
+  "Лес": [[.6,.25,0],[.75,.6,0],[.25,1,0],[0,.8,.25],[0,1,.65]],
+  "Радуга": [[1,0,0],[1,.6,0],[.9,1,0],[0,1,0],[0,1,1],[0,.2,1],[.6,0,1]],
+};
+const PRESETS = ["#ff0000","#ff6000","#ffd000","#00ff00","#00ffd0","#0000ff","#8000ff","#ff00a0","#ffffff"];
+const MODES = [
+  ["manual", "Ручной", "один цвет"],
+  ["freq", "Частоты", "басы тёплые, верха холодные"],
+  ["beat", "Бит", "новый цвет на удар"],
+  ["pulse", "Пульс", "яркость от басов"],
+  ["calm", "Плавный", "дыхание без вспышек"],
+  ["spectrum", "Спектр", "басы/середина/верха = R/G/B"],
+];
+
+function paletteRgb(name, t) {
+  const s = PALETTES[name] || PALETTES["Тепло и холод"];
+  t = Math.max(0, Math.min(1, t)) * (s.length - 1);
+  const i = Math.min(Math.floor(t), s.length - 2), f = t - i;
+  return s[i].map((a, k) => a + (s[i + 1][k] - a) * f);
+}
+// spark — доля цвета искры (по умолчанию белый), v — яркость
+const shade = (rgb, v = 1, spark = 0, sparkRgb = [1, 1, 1]) =>
+  rgb.map((c, i) => Math.round(255 * v * (c + (sparkRgb[i] - c) * spark)));
+const pingpong = x => { x = ((x % 1) + 1) % 1; return 1 - Math.abs(2 * x - 1); };
+const hexToRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const rgbCss = ([r, g, b]) => `rgb(${r},${g},${b})`;
+
+// ---------- Настройки (запоминаются в телефоне) ----------
+const state = { mode: "manual", color: "#ff00a0", brightness: 100, sens: 7, palette: "Тепло и холод", order: "GRB", strobe: false, power: true };
+try { Object.assign(state, JSON.parse(localStorage.getItem("ledmusic") || "{}")); } catch (e) {}
+state.power = true;
+const save = () => { try { localStorage.setItem("ledmusic", JSON.stringify(state)); } catch (e) {} };
+const sensThreshold = () => 2.0 - (state.sens - 1) * 0.1; // 1 → 2.0 (только сильные удары), 10 → 1.1
+
+// ---------- Bluetooth ----------
+let device = null, characteristic = null, writing = false, lastSent = "", lastPower = null;
+const $ = id => document.getElementById(id);
+
+function setStatus(text, cls = "") { const el = $("status"); el.textContent = text; el.className = cls; }
+
+async function write(bytes) {
+  if (!characteristic) return;
+  const data = new Uint8Array(bytes);
+  if (characteristic.writeValueWithoutResponse) await characteristic.writeValueWithoutResponse(data);
+  else await characteristic.writeValue(data);
+}
+
+async function connect() {
+  try {
+    setStatus("Выберите ленту ELK в списке…");
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: "ELK" }, { namePrefix: "ELK-BLE" }, { services: [SERVICE] }],
+      optionalServices: [SERVICE],
+    });
+    device.addEventListener("gattserverdisconnected", onDisconnect);
+    await openGatt();
+  } catch (e) {
+    setStatus(e.name === "NotFoundError" ? "Лента не выбрана" : "Ошибка: " + e.message, "warn");
+  }
+}
+
+async function openGatt() {
+  setStatus(`Подключаюсь к ${device.name || "ленте"}…`);
+  const server = await device.gatt.connect();
+  const service = await server.getPrimaryService(SERVICE);
+  characteristic = await service.getCharacteristic(CHAR);
+  lastSent = ""; lastPower = null;
+  setStatus(`Подключено: ${device.name || "лента"}`, "ok");
+  $("connect").textContent = "Отключить";
+  $("power").disabled = false;
+}
+
+async function onDisconnect() {
+  characteristic = null;
+  $("power").disabled = true;
+  if (!device || device._manual) { $("connect").textContent = "Подключить ленту"; setStatus("Лента отключена"); return; }
+  setStatus("Связь потеряна, переподключаюсь…", "warn");
+  for (let i = 0; i < 5 && device && !characteristic; i++) {
+    try { await openGatt(); return; } catch (e) { await new Promise(r => setTimeout(r, 2000)); }
+  }
+  $("connect").textContent = "Подключить ленту";
+  setStatus("Не удалось переподключиться. Нажмите «Подключить ленту».", "warn");
+}
+
+$("connect").onclick = () => {
+  if (characteristic && device) { device._manual = true; device.gatt.disconnect(); device = null; return; }
+  connect();
+};
+$("power").onclick = () => {
+  state.power = !state.power;
+  $("power").textContent = state.power ? "Выкл" : "Вкл";
+};
+
+// ---------- Микрофон и анализ звука (тот же алгоритм, что на компьютере) ----------
+let audio = null;
+
+async function startMic() {
+  if (audio) return true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaStreamSource(stream);
+    const an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    an.smoothingTimeConstant = 0;
+    src.connect(an);
+    audio = new Analyzer(ctx, an);
+    if (ctx.state === "suspended") await ctx.resume();
+    return true;
+  } catch (e) {
+    setStatus("Нет доступа к микрофону: разрешите его в настройках браузера", "warn");
+    return false;
+  }
+}
+
+class Analyzer {
+  constructor(ctx, node) {
+    this.node = node;
+    this.db = new Float32Array(node.frequencyBinCount);
+    this.time = new Float32Array(node.fftSize);
+    const hz = i => i * ctx.sampleRate / node.fftSize;
+    const n = node.frequencyBinCount;
+    const idx = (lo, hi) => [...Array(n).keys()].filter(i => hz(i) >= lo && hz(i) < hi);
+    this.bands = { bass: idx(30, 150), mid: idx(150, 2000), high: idx(2000, 10000) };
+    this.centBins = idx(30, 10000);
+    this.centLog = this.centBins.map(i => Math.log2(hz(i)));
+    this.peak = { bass: 1e-9, mid: 1e-9, high: 1e-9 };
+    this.level = { bass: 0, mid: 0, high: 0 };
+    this.hist = []; this.highHist = [];
+    this.lastBeat = 0; this.lastHat = 0; this.beats = 0; this.hats = 0;
+    this.loudHist = []; this.lastDrop = -100; this.drops = 0;
+    this.centroid = 9; this.loudness = 0;
+  }
+  update(now, dt) {
+    this.node.getFloatFrequencyData(this.db);
+    this.node.getFloatTimeDomainData(this.time);
+    const mag = i => Math.pow(10, this.db[i] / 20);
+    const energy = {};
+    for (const k in this.bands) {
+      let s = 0; for (const i of this.bands[k]) { const m = mag(i); s += m * m; }
+      energy[k] = s / this.bands[k].length;
+      this.peak[k] = Math.max(energy[k], this.peak[k] * Math.pow(0.995, dt * 47), 1e-9);
+      this.level[k] = Math.min(1, Math.sqrt(energy[k] / this.peak[k]));
+    }
+    let sq = 0; for (const v of this.time) sq += v * v;
+    this.loudness = Math.sqrt(sq / this.time.length);
+
+    const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+    const thr = sensThreshold();
+    if (this.hist.length > 10 && energy.bass > avg(this.hist) * thr && this.level.bass > 0.35
+        && now - this.lastBeat > 0.12 && this.loudness > 0.002) { this.lastBeat = now; this.beats++; }
+    if (this.highHist.length > 10 && energy.high > avg(this.highHist) * 1.8 && this.level.high > 0.45
+        && now - this.lastHat > 0.08 && this.loudness > 0.002) { this.lastHat = now; this.hats++; }
+    this.hist.push(energy.bass); if (this.hist.length > 47) this.hist.shift();
+    this.highHist.push(energy.high); if (this.highHist.length > 47) this.highHist.shift();
+
+    // дроп: после затишья (~3 с) громкость резко выросла в 2+ раза
+    this.loudHist.push(this.loudness); if (this.loudHist.length > 180) this.loudHist.shift();
+    if (this.loudHist.length === 180 && now - this.lastDrop > 8) {
+      const recent = avg(this.loudHist.slice(-15)), before = avg(this.loudHist.slice(0, -30));
+      if (recent > 0.02 && recent > before * 2) { this.lastDrop = now; this.drops++; }
+    }
+
+    let ms = 0, ws = 0;
+    this.centBins.forEach((i, k) => { const m = mag(i); ms += m; ws += m * this.centLog[k]; });
+    if (ms > 1e-9) this.centroid = ws / ms;
+  }
+}
+
+// ---------- Эффекты ----------
+const fx = { pos: Math.random(), flash: 0, sparkle: 0, tone: 0.5, lo: 8, hi: 11, seenBeats: 0, seenHats: 0,
+  seenDrops: 0, strobeUntil: 0, calm: 0.3, quietSince: null };
+
+function frame(now, dt) {
+  if (state.mode === "manual") return hexToRgb(state.color);
+  if (!audio) return [0, 0, 0];
+  audio.update(now, dt);
+  const L = audio.level;
+  if (audio.loudness < 0.0015) fx.quietSince = fx.quietSince ?? now; else fx.quietSince = null;
+  if (fx.quietSince !== null && now - fx.quietSince > 2) {
+    fx.pos += dt * 0.02;
+    return shade(paletteRgb(state.palette, pingpong(fx.pos)), 0.08);
+  }
+  const newBeat = audio.beats !== fx.seenBeats, newHat = audio.hats !== fx.seenHats;
+  fx.seenBeats = audio.beats; fx.seenHats = audio.hats;
+  fx.flash = Math.max(0, fx.flash - dt * 4);
+  fx.sparkle = Math.max(0, fx.sparkle - dt * 7);
+  const pal0 = t => paletteRgb(state.palette, t);
+
+  // стробоскоп на дропе: ~12 вспышек в секунду цветом верхов палитры
+  const newDrop = audio.drops !== fx.seenDrops; fx.seenDrops = audio.drops;
+  if (newDrop && state.strobe && state.mode !== "calm") fx.strobeUntil = now + 1.2;
+  if (now < fx.strobeUntil) return Math.floor((fx.strobeUntil - now) * 12.5) % 2 === 0 ? shade(pal0(1)) : [0, 0, 0];
+
+  if (state.mode === "calm") {
+    fx.calm += (Math.max(L.bass, L.mid) - fx.calm) * Math.min(1, dt * 0.8);
+    fx.pos += dt * 0.015;
+    return shade(pal0(pingpong(fx.pos)), 0.15 + 0.7 * fx.calm);
+  }
+  const pal = t => paletteRgb(state.palette, t);
+
+  if (state.mode === "spectrum") return [L.bass, L.mid * 0.8, L.high].map(v => Math.round(255 * v));
+  if (state.mode === "pulse") { fx.pos += dt * 0.05; return shade(pal(pingpong(fx.pos)), 0.1 + 0.9 * Math.pow(L.bass, 1.5)); }
+  if (state.mode === "beat") {
+    if (newBeat) { fx.pos += 0.2 + Math.random() * 0.25; fx.flash = 1; }
+    return shade(pal(pingpong(fx.pos)), Math.min(1, 0.15 + 0.25 * L.mid + fx.flash * 0.85));
+  }
+  // freq: басы — начало палитры, верха — конец
+  const c = audio.centroid;
+  fx.lo = Math.min(c, fx.lo + (c - fx.lo) * dt * 0.08);
+  fx.hi = Math.max(c, fx.hi + (c - fx.hi) * dt * 0.08);
+  if (fx.hi - fx.lo < 2.5) { const m = (fx.hi + fx.lo) / 2; fx.lo = m - 1.25; fx.hi = m + 1.25; }
+  const relative = (c - fx.lo) / (fx.hi - fx.lo);
+  const absolute = Math.max(0, Math.min(1, (c - 7.5) / (12.3 - 7.5)));
+  fx.tone += (0.35 * relative + 0.65 * absolute - fx.tone) * Math.min(1, dt * 6);
+  if (newBeat) { fx.flash = 1; fx.tone *= 0.4; }
+  if (newHat) fx.sparkle = 1;
+  const energy = Math.max(L.bass, L.mid, L.high);
+  // искра на хай-хэтах — цветом верхов палитры, не белым (белый на ленте выглядит голубым)
+  return shade(pal(fx.tone), Math.min(1, 0.2 + 0.45 * energy + 0.6 * fx.flash + 0.5 * fx.sparkle), 0.8 * fx.sparkle, pal(1));
+}
+
+// ---------- Главный цикл: ~25 обновлений ленты в секунду ----------
+let lastT = performance.now() / 1000, lastSendT = 0;
+function loop() {
+  const now = performance.now() / 1000, dt = Math.min(0.1, now - lastT);
+  lastT = now;
+  const raw = frame(now, dt);
+  const k = state.brightness / 100;
+  const rgb = state.power ? raw.map(v => Math.round(v * k)) : [0, 0, 0];
+  $("glow").style.background = rgbCss(rgb);
+  $("glow").style.boxShadow = `0 0 18px ${rgbCss(rgb)}`;
+  if (audio && state.mode !== "manual") {
+    $("mBass").style.width = audio.level.bass * 100 + "%";
+    $("mMid").style.width = audio.level.mid * 100 + "%";
+    $("mHigh").style.width = audio.level.high * 100 + "%";
+  }
+  if (characteristic && !writing && now - lastSendT >= 0.04) {
+    const key = rgb.join(",") + state.order;
+    let cmd = null;
+    if (state.power !== lastPower) { cmd = state.power ? POWER_ON : POWER_OFF; lastPower = state.power; lastSent = ""; }
+    else if (state.power && key !== lastSent) { cmd = colorCmd(...rgb, state.order); lastSent = key; }
+    if (cmd) {
+      writing = true; lastSendT = now;
+      write(cmd).catch(() => { lastSent = ""; }).finally(() => { writing = false; });
+    }
+  }
+}
+
+// ---------- Интерфейс ----------
+function render() {
+  $("swatches").innerHTML = "";
+  for (const hex of PRESETS) {
+    const b = document.createElement("button");
+    b.className = "swatch" + (state.mode === "manual" && state.color === hex ? " sel" : "");
+    b.style.background = hex; b.ariaLabel = hex;
+    b.onclick = () => { state.color = hex; setMode("manual"); };
+    $("swatches").append(b);
+  }
+  const pick = document.createElement("button");
+  pick.className = "swatch picker"; pick.ariaLabel = "Любой цвет";
+  pick.innerHTML = `<input type="color" value="${state.color}">`;
+  pick.querySelector("input").oninput = e => { state.color = e.target.value; state.mode = "manual"; save(); renderModes(); };
+  pick.querySelector("input").onchange = () => render();
+  $("swatches").append(pick);
+  renderModes();
+  $("palettes").innerHTML = "";
+  for (const name in PALETTES) {
+    const b = document.createElement("button");
+    b.className = "pal" + (state.palette === name ? " sel" : "");
+    const stops = PALETTES[name].map((c, i, a) => `${rgbCss(shade(c))} ${i / (a.length - 1) * 100}%`).join(",");
+    b.innerHTML = `${name}<i style="background:linear-gradient(90deg,${stops})"></i>`;
+    b.onclick = () => {
+      state.palette = name;
+      if (state.mode === "manual" || state.mode === "spectrum") setMode("freq"); else { save(); render(); }
+    };
+    $("palettes").append(b);
+  }
+  $("orders").innerHTML = "";
+  for (const o of ORDERS) {
+    const b = document.createElement("button");
+    b.className = state.order === o ? "sel" : "";
+    b.textContent = o;
+    b.onclick = () => { state.order = o; save(); render(); };
+    $("orders").append(b);
+  }
+}
+function renderModes() {
+  $("modes").innerHTML = "";
+  for (const [id, title, hint] of MODES) {
+    const b = document.createElement("button");
+    b.className = state.mode === id ? "sel" : "";
+    b.innerHTML = `${title}<small>${hint}</small>`;
+    b.onclick = () => setMode(id);
+    $("modes").append(b);
+  }
+  $("meters").hidden = state.mode === "manual";
+}
+async function setMode(id) {
+  if (id !== "manual" && !(await startMic())) id = "manual";
+  state.mode = id; save(); render();
+}
+
+$("bright").value = state.brightness; $("brightVal").textContent = state.brightness + "%";
+$("bright").oninput = e => { state.brightness = +e.target.value; $("brightVal").textContent = state.brightness + "%"; save(); };
+$("sens").value = state.sens; $("sensVal").textContent = state.sens;
+$("sens").oninput = e => { state.sens = +e.target.value; $("sensVal").textContent = state.sens; save(); };
+$("strobe").checked = state.strobe;
+$("strobe").onchange = e => { state.strobe = e.target.checked; save(); };
+
+if (!navigator.bluetooth) { $("unsupported").style.display = "block"; $("connect").disabled = true; }
+// микрофон браузер включает только по нажатию, поэтому после перезапуска стартуем с ручного цвета
+state.mode = "manual";
+render();
+setInterval(loop, 16); // ~60 раз в секунду: анализ звука; лента получает не больше 25 обновлений в секунду
+</script>
+</body>
+</html>
